@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Jannis Weis
+ * Copyright (c) 2022-2026 Jannis Weis
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
  * associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -21,6 +21,8 @@
  */
 package com.github.weisj.jsvg.attribute;
 
+import java.awt.Font;
+import java.awt.image.ImageObserver;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -30,9 +32,14 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import com.github.weisj.jsvg.attributes.font.*;
+import com.github.weisj.jsvg.attributes.font.FontParser;
+import com.github.weisj.jsvg.attributes.font.FontResolver;
+import com.github.weisj.jsvg.attributes.font.MeasurableFontSpec;
+import com.github.weisj.jsvg.attributes.font.SVGFont;
 import com.github.weisj.jsvg.parser.impl.ParserTestUtil;
 import com.github.weisj.jsvg.renderer.MeasureContext;
+import com.github.weisj.jsvg.renderer.NullPlatformSupport;
+import com.github.weisj.jsvg.renderer.PlatformSupport;
 import com.github.weisj.jsvg.renderer.animation.AnimationState;
 import com.github.weisj.jsvg.view.FloatSize;
 
@@ -53,8 +60,8 @@ class FontTest {
         Supplier<MeasurableFontSpec> fontSpec = () -> createFontSpec(
                 entry("font-family", "sans-serif"),
                 entry("font-size", "11"));
-        SVGFont font1 = FontResolver.resolve(fontSpec.get(), MEASURE_CONTEXT, SVGFont.defaultFontFamily());
-        SVGFont font2 = FontResolver.resolve(fontSpec.get(), MEASURE_CONTEXT, SVGFont.defaultFontFamily());
+        SVGFont font1 = FontResolver.resolve(fontSpec.get(), MEASURE_CONTEXT, NullPlatformSupport.INSTANCE);
+        SVGFont font2 = FontResolver.resolve(fontSpec.get(), MEASURE_CONTEXT, NullPlatformSupport.INSTANCE);
         Assertions.assertSame(font1, font2);
     }
 
@@ -64,9 +71,47 @@ class FontTest {
         MeasurableFontSpec fontSpec = createFontSpec(
                 entry("font-family", fontName),
                 entry("font-size", "3em"));
-        SVGFont font = FontResolver.resolveWithoutCache(fontSpec, MEASURE_CONTEXT, SVGFont.defaultFontFamily());
+        SVGFont font = FontResolver.resolveWithoutCache(fontSpec, MEASURE_CONTEXT, NullPlatformSupport.INSTANCE);
         Assertions.assertEquals(fontName, font.family());
         Assertions.assertEquals(3 * MEASURE_CONTEXT.em(), font.size());
+    }
+
+    String queriedFontFamily;
+
+    @Test
+    void customFontIsUsed() {
+        PlatformSupport support = getSupport();
+
+        // "NoSuchFamily" is not a registered AWT family, so the custom hook must be used.
+        MeasurableFontSpec fontSpec = createFontSpec(
+                entry("font-family", "NoSuchFamily"),
+                entry("font-size", "12"));
+        SVGFont font = FontResolver.resolveWithoutCache(fontSpec, MEASURE_CONTEXT, support);
+
+        Assertions.assertEquals("nosuchfamily", queriedFontFamily); // CSS-canonicalized
+        Assertions.assertEquals(12f, font.size());
+    }
+
+    private @NotNull PlatformSupport getSupport() {
+        Font stub = new Font(Font.DIALOG, Font.PLAIN, 1);
+        PlatformSupport support = new PlatformSupport() {
+            @Override
+            public ImageObserver imageObserver() {
+                return null;
+            }
+
+            @Override
+            public TargetSurface targetSurface() {
+                return null;
+            }
+
+            @Override
+            public @NotNull Font customFont(@NotNull String family) {
+                queriedFontFamily = family;
+                return stub;
+            }
+        };
+        return support;
     }
 
     private static @NotNull MeasurableFontSpec createFontSpec(@NotNull AttributeEntry... attributes) {

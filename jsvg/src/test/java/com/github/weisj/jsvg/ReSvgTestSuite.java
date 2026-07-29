@@ -28,25 +28,37 @@ import static com.github.weisj.jsvg.ImageComparison.ReferenceTestResult.SUCCESS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.awt.Font;
+import java.awt.FontFormatException;
+import java.awt.image.ImageObserver;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.function.Executable;
 
 import com.github.weisj.jsvg.ImageComparison.RenderType;
+import com.github.weisj.jsvg.attributes.font.FontResolver;
+import com.github.weisj.jsvg.renderer.PlatformSupport;
 
 class ReSvgTestSuite {
 
     private static final Logger LOGGER = Logging.getLogger(ReSvgTestSuite.class);
     private static final String RESVG_TEST_SUITE_PATH = System.getenv("RESVG_TEST_SUITE_PATH");
+
+    // JSVG render type carrying the fonts bundled with the suite (set up in @BeforeAll).
+    private static @NotNull RenderType jsvgRenderType = RenderType.JSVG;
 
     static Collection<DynamicTest> checkDirectory(@NotNull String name) {
         return checkDirectory(name, Collections.emptySet());
@@ -71,7 +83,7 @@ class ReSvgTestSuite {
     }
 
     @BeforeAll
-    static void checkForReSVGRepository() {
+    static void checkForReSVGRepositoryAndRegisterFonts() {
         var exists = Path.of(RESVG_TEST_SUITE_PATH).toFile().exists();
         var message = """
                 The resvg submodule was not found. Skipping ReSVG test suite.
@@ -81,6 +93,50 @@ class ReSvgTestSuite {
             LOGGER.warn(message);
         }
         assumeTrue(exists, message);
+
+        jsvgRenderType = new RenderType.JSVGType(RenderType.JSVG.loaderContext(), loadBundledFonts());
+        // Drop any fallback fonts a prior test cached for these families in the shared JVM.
+        FontResolver.clearFontCache();
+    }
+
+    private static @NotNull PlatformSupport loadBundledFonts() {
+        Map<String, Font> fonts = new HashMap<>();
+        Path fontDir = Path.of(RESVG_TEST_SUITE_PATH).getParent().resolve("fonts");
+        try (var files = Files.walk(fontDir)) {
+            files.filter(p -> p.toString().endsWith(".ttf")).forEach(p -> {
+                try {
+                    Font font = Font.createFont(Font.TRUETYPE_FONT, p.toFile());
+                    // FontResolver looks up the CSS-canonicalized (lower-cased) family name.
+                    String family = font.getFamily().toLowerCase(Locale.US);
+                    // A family may span multiple files; prefer the regular variant.
+                    if (p.getFileName().toString().contains("Regular") || !fonts.containsKey(family)) {
+                        fonts.put(family, font);
+                    }
+                } catch (IOException | FontFormatException e) {
+                    LOGGER.warn("Failed to load font " + p, e);
+                }
+            });
+        } catch (IOException e) {
+            LOGGER.warn("Failed to walk font directory " + fontDir, e);
+        }
+        return new BundledFontSupport(fonts);
+    }
+
+    private record BundledFontSupport(@NotNull Map<String, Font> fonts) implements PlatformSupport {
+        @Override
+        public @Nullable ImageObserver imageObserver() {
+            return null;
+        }
+
+        @Override
+        public @Nullable TargetSurface targetSurface() {
+            return null;
+        }
+
+        @Override
+        public @Nullable Font customFont(@NotNull String family) {
+            return fonts.get(family.toLowerCase(Locale.US));
+        }
     }
 
     @TestFactory
@@ -186,7 +242,7 @@ class ReSvgTestSuite {
                     expected(new UrlImageSource(pngRef.toUri().toURL()),
                             RenderType.DiskImage),
                     actual(new UrlImageSource(testFile.toUri().toURL()),
-                            RenderType.JSVG)));
+                            jsvgRenderType)));
             assertEquals(SUCCESS, result);
         }
     }

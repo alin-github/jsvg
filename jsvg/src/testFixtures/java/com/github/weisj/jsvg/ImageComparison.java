@@ -64,6 +64,8 @@ import com.github.weisj.jsvg.ImageComparison.ImageSource.PathImageSource;
 import com.github.weisj.jsvg.parser.LoaderContext;
 import com.github.weisj.jsvg.parser.SVGLoader;
 import com.github.weisj.jsvg.parser.resources.ResourcePolicy;
+import com.github.weisj.jsvg.renderer.NullPlatformSupport;
+import com.github.weisj.jsvg.renderer.PlatformSupport;
 import com.github.weisj.jsvg.renderer.SVGRenderingHints;
 import com.github.weisj.jsvg.util.ColorUtil;
 import com.github.weisj.jsvg.view.FloatSize;
@@ -86,7 +88,11 @@ public final class ImageComparison {
 
         record BatikType() implements RenderType {
         }
-        record JSVGType(@NotNull LoaderContext loaderContext) implements RenderType {
+        record JSVGType(@NotNull LoaderContext loaderContext,
+                @NotNull PlatformSupport platformSupport) implements RenderType {
+            JSVGType(@NotNull LoaderContext loaderContext) {
+                this(loaderContext, NullPlatformSupport.INSTANCE);
+            }
         }
 
         record DiskImage() implements RenderType {
@@ -218,12 +224,12 @@ public final class ImageComparison {
         BufferedImage render(@Nullable BufferedImage expectedHint) throws IOException {
             return switch (renderType) {
                 case BatikType() -> renderBatik(source.openStream());
-                case JSVGType(LoaderContext loaderContext) -> {
+                case JSVGType(LoaderContext loaderContext, PlatformSupport platformSupport) -> {
                     Dimension size = null;
                     if (expectedHint != null) {
                         size = new Dimension(expectedHint.getWidth(), expectedHint.getHeight());
                     }
-                    yield renderJsvg(source, graphicsMutator, loaderContext, size);
+                    yield renderJsvg(source, graphicsMutator, loaderContext, platformSupport, size);
                 }
                 case DiskImage() -> {
                     var img = ImageIO.read(source.openStream());
@@ -368,7 +374,7 @@ public final class ImageComparison {
 
     public static @NotNull BufferedImage renderJsvg(@NotNull String path) {
         try {
-            return renderJsvg(new PathImageSource(path), null, JSVG.loaderContext(), null);
+            return renderJsvg(new PathImageSource(path), null, JSVG.loaderContext(), JSVG.platformSupport(), null);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -385,7 +391,7 @@ public final class ImageComparison {
 
     private static BufferedImage renderJsvg(@NotNull ImageSource imageSource,
             @Nullable Consumer<Graphics2D> graphicsMutator, LoaderContext loaderContext,
-            @Nullable Dimension sizeHint) throws IOException {
+            @NotNull PlatformSupport platformSupport, @Nullable Dimension sizeHint) throws IOException {
         SVGDocument document;
 
         URL url = imageSource.url();
@@ -405,7 +411,7 @@ public final class ImageComparison {
         g.setColor(ColorUtil.withAlpha(Color.WHITE, 0));
         g.fillRect(0, 0, image.getWidth(), image.getHeight());
         if (graphicsMutator != null) graphicsMutator.accept(g);
-        document.render((Component) null, g, new ViewBox(size));
+        document.renderWithPlatform(platformSupport, g, new ViewBox(size));
         g.dispose();
         return image;
     }

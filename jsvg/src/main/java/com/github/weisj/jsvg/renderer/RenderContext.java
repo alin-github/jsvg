@@ -370,7 +370,7 @@ public final class RenderContext {
     }
 
     private @NotNull SVGFont font() {
-        return FontResolver.resolve(this.fontSpec, this.measureContext, platformSupport.fontFamily());
+        return FontResolver.resolve(this.fontSpec, this.measureContext, platformSupport);
     }
 
     private void setRootTransform(@NotNull AffineTransform rootTransform) {

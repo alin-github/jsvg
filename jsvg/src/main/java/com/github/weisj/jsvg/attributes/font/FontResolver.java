@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2021-2025 Jannis Weis
+ * Copyright (c) 2021-2026 Jannis Weis
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
  * associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -21,16 +21,22 @@
  */
 package com.github.weisj.jsvg.attributes.font;
 
-import java.awt.*;
+import java.awt.Font;
+import java.awt.GraphicsEnvironment;
 import java.awt.font.TextAttribute;
 import java.awt.geom.AffineTransform;
 import java.text.AttributedCharacterIterator;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 import org.jetbrains.annotations.NotNull;
 
 import com.github.weisj.jsvg.renderer.MeasureContext;
+import com.github.weisj.jsvg.renderer.PlatformSupport;
 
 public final class FontResolver {
     private FontResolver() {}
@@ -40,19 +46,14 @@ public final class FontResolver {
     }
 
     public static @NotNull SVGFont resolve(@NotNull MeasurableFontSpec fontSpec,
-            @NotNull MeasureContext measureContext, @NotNull String defaultFontFamily) {
+            @NotNull MeasureContext measureContext, @NotNull PlatformSupport platformSupport) {
         FontCache.CacheKey key = new FontCache.CacheKey(fontSpec, measureContext);
-        SVGFont cachedFont = FontCache.INSTANCE.cache.get(key);
-        if (cachedFont != null) return cachedFont;
-        SVGFont resolvedFont = resolveWithoutCache(fontSpec, measureContext, defaultFontFamily);
-        FontCache.INSTANCE.cache.put(key, resolvedFont);
-        return resolvedFont;
+        return FontCache.INSTANCE.cache.computeIfAbsent(key,
+                k -> resolveWithoutCache(fontSpec, measureContext, platformSupport));
     }
 
     public static @NotNull SVGFont resolveWithoutCache(@NotNull MeasurableFontSpec fontSpec,
-            @NotNull MeasureContext measureContext, @NotNull String defaultFontFamily) {
-        String family = findSupportedFontFamily(fontSpec, defaultFontFamily);
-
+            @NotNull MeasureContext measureContext, @NotNull PlatformSupport platformSupport) {
         FontStyle style = fontSpec.style();
 
         float weight = cssWeightToAwtWeight(fontSpec.currentWeight());
@@ -60,11 +61,9 @@ public final class FontResolver {
         float stretch = fontSpec.stretch().orElseIfUnspecified(1).value();
 
         Map<AttributedCharacterIterator.Attribute, Object> attributes = new HashMap<>(5, 1f);
-        attributes.put(TextAttribute.FAMILY, family);
         attributes.put(TextAttribute.SIZE, size);
         attributes.put(TextAttribute.WEIGHT, weight);
         attributes.put(TextAttribute.WIDTH, stretch);
-
 
         if (style instanceof FontStyle.Normal) {
             attributes.put(TextAttribute.POSTURE, TextAttribute.POSTURE_REGULAR);
@@ -75,8 +74,30 @@ public final class FontResolver {
             if (transform != null) attributes.put(TextAttribute.TRANSFORM, transform);
         }
 
-        Font font = new Font(attributes);
+        Font font = resolveFont(fontSpec, platformSupport, attributes);
         return new AWTSVGFont(font);
+    }
+
+    /** Resolves and sets the first matching font family based on {@code fontSpec.families}. */
+    private static @NotNull Font resolveFont(@NotNull MeasurableFontSpec fontSpec,
+            @NotNull PlatformSupport platformSupport,
+            @NotNull Map<AttributedCharacterIterator.Attribute, Object> attributes) {
+        for (String family : fontSpec.families()) {
+            // Prefer predefined fonts, then custom fonts supplied by the platform.
+            if (FontFamiliesCache.INSTANCE.isSupportedFontFamily(family)) {
+                attributes.put(TextAttribute.FAMILY, family);
+                return new Font(attributes);
+            }
+            // If no predefined font was found, try to find a custom font.
+            Font customFont = platformSupport.customFont(family);
+            if (customFont != null) {
+                attributes.put(TextAttribute.FAMILY, family);
+                return customFont.deriveFont(attributes);
+            }
+        }
+        // return default font if nothing was matched
+        attributes.put(TextAttribute.FAMILY, platformSupport.fontFamily());
+        return new Font(attributes);
     }
 
     private static float cssWeightToAwtWeight(float weight) {
@@ -91,15 +112,6 @@ public final class FontResolver {
             currentWeight *= awtWeightCompensationFactor;
         }
         return currentWeight / normalWeight;
-    }
-
-    private static @NotNull String findSupportedFontFamily(@NotNull MeasurableFontSpec fontSpec,
-            @NotNull String defaultFontFamily) {
-        String[] families = fontSpec.families();
-        for (String family : families) {
-            if (FontFamiliesCache.INSTANCE.isSupportedFontFamily(family)) return family;
-        }
-        return defaultFontFamily;
     }
 
     public static @NotNull List<@NotNull String> supportedFonts() {

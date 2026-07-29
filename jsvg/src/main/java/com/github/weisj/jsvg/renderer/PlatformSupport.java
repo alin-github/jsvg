@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2023-2025 Jannis Weis
+ * Copyright (c) 2023-2026 Jannis Weis
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
  * associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -48,6 +48,12 @@ public interface PlatformSupport {
 
     default @NotNull String fontFamily() {
         return SVGFont.defaultFontFamily();
+    }
+
+    // Custom font for a family not registered with the platform, or null if none is provided.
+    // The family is CSS-canonicalized (lower-cased); implementations must match accordingly.
+    default @Nullable Font customFont(@NotNull String family) {
+        return null;
     }
 
     default @NotNull Image createImage(@NotNull ImageProducer imageProducer) {
