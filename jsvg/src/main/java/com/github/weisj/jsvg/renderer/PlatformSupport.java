@@ -25,6 +25,7 @@ import java.awt.*;
 import java.awt.image.ImageObserver;
 import java.awt.image.ImageProducer;
 
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -50,8 +51,9 @@ public interface PlatformSupport {
         return SVGFont.defaultFontFamily();
     }
 
-    // Custom font for a family not registered with the platform, or null if none is provided.
-    // The family is CSS-canonicalized (lower-cased); implementations must match accordingly.
+    /** Custom font for a family not registered with the platform, or null if none is provided.
+     * The family is CSS-canonicalized (lower-cased); implementations must match accordingly. */
+    @ApiStatus.Experimental
     default @Nullable Font customFont(@NotNull String family) {
         return null;
     }
